@@ -1,62 +1,53 @@
 from fastapi import FastAPI, Request
-import yfinance as yf
-import numpy as np
-import pandas as pd
-from sklearn.linear_model import LinearRegression
+import requests
+import os
 
 app = FastAPI()
+API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'YOUR_API_KEY')
 
 @app.post("/stock-info")
 async def stock_info(request: Request):
     data = await request.json()
     ticker = data.get("ticker")
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={API_KEY}"
     try:
-        info = yf.Ticker(ticker).info
-        price = info.get("currentPrice")
-        market_cap = info.get("marketCap")
-        sector = info.get("sector")
-        company = info.get("shortName")
-        if price is None:
-            return {"error": "Price not found for ticker. Check symbol or Yahoo API limits."}
+        resp = requests.get(url)
+        stock_data = resp.json().get("Global Quote", {})
+        if not stock_data or not stock_data.get("05. price"):
+            return {"error": f"No data found. Try another ticker or check symbol on Alpha Vantage."}
         return {
             "ticker": ticker,
-            "price": price,
-            "market_cap": market_cap,
-            "sector": sector,
-            "company": company,
+            "price": stock_data.get("05. price"),
+            "open": stock_data.get("02. open"),
+            "high": stock_data.get("03. high"),
+            "low": stock_data.get("04. low"),
+            "volume": stock_data.get("06. volume"),
         }
     except Exception as e:
         return {"error": f"Exception occurred: {str(e)}"}
 
-@app.post("/predict-price")
-async def predict_price(request: Request):
+@app.post("/market-predict")
+async def market_predict(request: Request):
     data = await request.json()
-    ticker = data["ticker"]
-    period = data.get("period", "1y")
-    df = yf.download(ticker, period=period)
-    closes = df['Close'].values
-
-    look_back = 10
-    X, y = [], []
-    for i in range(len(closes) - look_back):
-        X.append(closes[i:i+look_back])
-        y.append(closes[i+look_back])
-    X = np.array(X)
-    y = np.array(y)
-
-    if len(X) < 1:
-        return {"error": "Not enough data!"}
-
-    model = LinearRegression()
-    model.fit(X, y)
-
-    last_seq = closes[-look_back:].reshape(1, -1)
-    pred = model.predict(last_seq)[0]
-    return {
-        "ticker": ticker,
-        "last_close": float(closes[-1]),
-        "predicted_next_close": float(pred)
-    }
+    ticker = data.get("ticker")
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker}&apikey={API_KEY}"
+    try:
+        resp = requests.get(url)
+        ts = resp.json().get("Time Series (Daily)", {})
+        days = sorted(ts.keys())
+        if len(days) < 2:
+            return {"error": "Not enough data"}
+        yesterday = float(ts[days[-2]]["4. close"])
+        today = float(ts[days[-1]]["4. close"])
+        prediction = "up" if today > yesterday else "down"
+        return {
+            "ticker": ticker,
+            "yesterday_close": yesterday,
+            "today_close": today,
+            "prediction": prediction
+        }
+    except Exception as e:
+        return {"error": f"Exception occurred: {str(e)}"}
 
 @app.get("/hello")
 async def hello():
