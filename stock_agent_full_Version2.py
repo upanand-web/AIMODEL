@@ -9,18 +9,24 @@ app = FastAPI()
 @app.post("/stock-info")
 async def stock_info(request: Request):
     data = await request.json()
-    ticker = data["ticker"]
-    info = yf.Ticker(ticker).info
-    price = info.get("currentPrice")
-    market_cap = info.get("marketCap")
-    sector = info.get("sector")
-    return {
-        "ticker": ticker,
-        "price": price,
-        "market_cap": market_cap,
-        "sector": sector,
-        "company": info.get("shortName"),
-    }
+    ticker = data.get("ticker")
+    try:
+        info = yf.Ticker(ticker).info
+        price = info.get("currentPrice")
+        market_cap = info.get("marketCap")
+        sector = info.get("sector")
+        company = info.get("shortName")
+        if price is None:
+            return {"error": "Price not found for ticker. Check symbol or Yahoo API limits."}
+        return {
+            "ticker": ticker,
+            "price": price,
+            "market_cap": market_cap,
+            "sector": sector,
+            "company": company,
+        }
+    except Exception as e:
+        return {"error": f"Exception occurred: {str(e)}"}
 
 @app.post("/predict-price")
 async def predict_price(request: Request):
@@ -51,3 +57,7 @@ async def predict_price(request: Request):
         "last_close": float(closes[-1]),
         "predicted_next_close": float(pred)
     }
+
+@app.get("/hello")
+async def hello():
+    return {"message": "Your API is working!"}
